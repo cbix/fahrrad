@@ -1,8 +1,7 @@
 package main
 
 import (
-    "golang.org/x/net/icmp"
-    "golang.org/x/net/ipv6"
+	"github.com/garyburd/redigo/redis"
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv6"
 )
-
-
