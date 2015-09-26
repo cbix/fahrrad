@@ -50,7 +50,16 @@ func main() {
 		}
 		fmt.Printf("%v length %d received from %v:\n%x\n%x\n", m.Type, n, srcAddr, buf[:120], body[:120])
         addr := srcAddr.(*net.IPAddr)
-        fmt.Printf("ip: %v\n\n", []byte(addr.IP))
+        if addr.IP.IsLinkLocalUnicast() {
+            ip := []byte(addr.IP)
+            llakey := append([]byte("fahrrad/lla/"), []byte(addr.IP)...)
+            mac := []byte{ip[8]^0x02, ip[9], ip[10], ip[13], ip[14], ip[15]}
+            mackey := append([]byte("fahrrad/mac/"), mac...)
+            db.Cmd("INCR", llakey)
+            db.Cmd("INCR", mackey)
+        } else {
+            fmt.Println(addr, "is no linklocal address")
+        }
 	}
 	fmt.Printf("error: %v\n", err)
 }
