@@ -4,7 +4,7 @@ import (
 	"github.com/mediocregopher/radix.v2/redis"
 	//"github.com/mediocregopher/radix.v2/pubsub"
 	"fmt"
-	//"golang.org/x/net/icmp"
+	"golang.org/x/net/icmp"
 	"errors"
 	"golang.org/x/net/ipv6"
 	"net"
@@ -23,6 +23,7 @@ var (
 )
 
 func main() {
+
 	// open redis connection
 	redisdb, err := redis.Dial("tcp", "localhost:6379")
 	if err != nil {
@@ -186,6 +187,23 @@ func handleRS(src net.IP, body []byte) {
 		return
 	}
 	fmt.Println("found prefix " + net.IP(prefix).String() + "/64")
+    msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    msgoptions := [][]byte{[]byte{}, []byte{}}
+    for _, o := range(msgoptions) {
+        msgbody = append(body, o...)
+    }
+    msg := &icmp.Message{ipv6.ICMPTypeRouterAdvertisement, 0, 0, &icmp.DefaultMessageBody{msgbody}}
+    mb, err := msg.Marshal(nil)
+    if err != nil {
+        panic(err)
+    }
+    fmt.Printf("mb: %x\n\n", mb)
+    /*
+    _, err = pc.WriteTo(mb, src)
+    if err != nil {
+        fmt.Println(err)
+    }
+    */
 }
 
 func handleRA(src net.IP, body []byte) {
