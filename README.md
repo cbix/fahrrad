@@ -14,11 +14,8 @@ The database has to provide the following keys:
   `2001:db8::/64` → `\x20\x01\x0d\xb8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00`)
 
 ## Build and run
-    $ go get github.com/mediocregopher/radix.v2/redis
-    $ go get golang.org/x/net/icmp
-    $ go get golang.org/x/net/ipv6
-    $ go build
-    # ./fahrrad
+    $ go get github.com/CBiX/fahrrad
+    # $GOPATH/bin/fahrrad
 
 ## ref
 * RFC 4862
