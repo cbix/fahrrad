@@ -14,15 +14,11 @@ const (
 )
 
 var (
-	DefaultPrefixLength      byte   = 64
-	DefaultValidLifetime     []byte = []byte{0, 0x01, 0x51, 0x80}
-	DefaultPreferredLifetime []byte = []byte{0, 0, 0x38, 0x40}
 	pc                       *net.PacketConn
 	db                       *redis.Client
 )
 
 func main() {
-
 	// open redis connection
 	redisdb, err := redis.Dial("tcp", "localhost:6379")
 	if err != nil {
@@ -126,16 +122,27 @@ func handleRS(src net.IP, body []byte) {
 	}
 	fmt.Println("found prefix " + net.IP(prefix).String() + "/64")
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-	msgoptions := [][]byte{[]byte{}, []byte{}}
-	for _, o := range msgoptions {
-		msgbody = append(body, o...)
-	}
+
+    // Prefix option:
+    op := &NDOptionPrefix{
+        PrefixLength: 64,
+        OnLink: true,
+        AutoConf: true,
+        ValidLifetime: 86400,
+        PreferredLifetime: 14400,
+        Prefix: net.IP(prefix),
+    }
+    opbytes, err := op.Marshal()
+    if err != nil {
+        fmt.Println(err)
+        return
+    }
+	msgbody = append(body, opbytes...)
 	msg := &icmp.Message{ipv6.ICMPTypeRouterAdvertisement, 0, 0, &icmp.DefaultMessageBody{msgbody}}
 	mb, err := msg.Marshal(nil)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("mb: %x\n\n", mb)
 	/*
 	   _, err = pc.WriteTo(mb, src)
 	   if err != nil {
