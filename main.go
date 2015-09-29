@@ -58,14 +58,13 @@ func main() {
 			fmt.Println(err)
 			continue
 		}
-		addr := srcAddr.(*net.IPAddr)
 
-		go handleND(addr.IP, buf[:n])
+		go handleND(srcAddr, buf[:n])
 	}
 	fmt.Printf("error: %v\n", err)
 }
 
-func handleND(src net.IP, body []byte) {
+func handleND(src net.Addr, body []byte) {
 	t := ipv6.ICMPType(body[0])
 	fmt.Printf("message from %v type: %v\n", src, t)
 	switch t {
@@ -86,7 +85,7 @@ func handleND(src net.IP, body []byte) {
 	}
 }
 
-func handleRS(src net.IP, body []byte) {
+func handleRS(src net.Addr, body []byte) {
 	options, err := parseOptions(body[8:])
 	if err != nil {
 		fmt.Println(err)
@@ -137,12 +136,31 @@ func handleRS(src net.IP, body []byte) {
         fmt.Println(err)
         return
     }
-	msgbody = append(body, opbytes...)
+	msgbody = append(msgbody, opbytes...)
+
+    // LLA option (FIXME: hardware address retrieval)
+    localif, err := net.InterfaceByName(src.(*net.IPAddr).Zone)
+    if err == nil {
+        llaop := &NDOptionLLA{1, localif.HardwareAddr}
+        llaopbytes, err := llaop.Marshal()
+        if err == nil {
+            msgbody = append(msgbody, llaopbytes...)
+        } else {
+            fmt.Println(err)
+        }
+    } else {
+        fmt.Println(err)
+    }
+
 	msg := &icmp.Message{ipv6.ICMPTypeRouterAdvertisement, 0, 0, &icmp.DefaultMessageBody{msgbody}}
 	mb, err := msg.Marshal(nil)
 	if err != nil {
 		panic(err)
 	}
+    // workaround wtfwtfwtf
+    n, err := (*pc).WriteTo(mb, src)
+    fmt.Printf("writeto: %v, %v\n\n", n, err)
+    // FIXME: clients don't seem to accept this :(
 	/*
 	   _, err = pc.WriteTo(mb, src)
 	   if err != nil {
