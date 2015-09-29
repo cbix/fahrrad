@@ -20,5 +20,6 @@ You need redis installed and running on tcp port 6379.
     $ su -c "$GOPATH/bin/fahrrad"
 
 ## ref
+* RFC 4861
 * RFC 4862
 
