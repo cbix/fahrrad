@@ -14,8 +14,8 @@ const (
 )
 
 var (
-	pc                       *net.PacketConn
-	db                       *redis.Client
+	pc *net.PacketConn
+	db *redis.Client
 )
 
 func main() {
@@ -122,45 +122,45 @@ func handleRS(src net.Addr, body []byte) {
 	fmt.Println("found prefix " + net.IP(prefix).String() + "/64")
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
-    // Prefix option:
-    op := &NDOptionPrefix{
-        PrefixLength: 64,
-        OnLink: true,
-        AutoConf: true,
-        ValidLifetime: 86400,
-        PreferredLifetime: 14400,
-        Prefix: net.IP(prefix),
-    }
-    opbytes, err := op.Marshal()
-    if err != nil {
-        fmt.Println(err)
-        return
-    }
+	// Prefix option:
+	op := &NDOptionPrefix{
+		PrefixLength:      64,
+		OnLink:            true,
+		AutoConf:          true,
+		ValidLifetime:     86400,
+		PreferredLifetime: 14400,
+		Prefix:            net.IP(prefix),
+	}
+	opbytes, err := op.Marshal()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
 	msgbody = append(msgbody, opbytes...)
 
-    // LLA option (FIXME: hardware address retrieval)
-    localif, err := net.InterfaceByName(src.(*net.IPAddr).Zone)
-    if err == nil {
-        llaop := &NDOptionLLA{1, localif.HardwareAddr}
-        llaopbytes, err := llaop.Marshal()
-        if err == nil {
-            msgbody = append(msgbody, llaopbytes...)
-        } else {
-            fmt.Println(err)
-        }
-    } else {
-        fmt.Println(err)
-    }
+	// LLA option (FIXME: hardware address retrieval)
+	localif, err := net.InterfaceByName(src.(*net.IPAddr).Zone)
+	if err == nil {
+		llaop := &NDOptionLLA{1, localif.HardwareAddr}
+		llaopbytes, err := llaop.Marshal()
+		if err == nil {
+			msgbody = append(msgbody, llaopbytes...)
+		} else {
+			fmt.Println(err)
+		}
+	} else {
+		fmt.Println(err)
+	}
 
 	msg := &icmp.Message{ipv6.ICMPTypeRouterAdvertisement, 0, 0, &icmp.DefaultMessageBody{msgbody}}
 	mb, err := msg.Marshal(nil)
 	if err != nil {
 		panic(err)
 	}
-    // workaround wtfwtfwtf
-    n, err := (*pc).WriteTo(mb, src)
-    fmt.Printf("writeto: %v, %v\n\n", n, err)
-    // FIXME: clients don't seem to accept this :(
+	// workaround wtfwtfwtf
+	n, err := (*pc).WriteTo(mb, src)
+	fmt.Printf("writeto: %v, %v\n\n", n, err)
+	// FIXME: clients don't seem to accept this :(
 	/*
 	   _, err = pc.WriteTo(mb, src)
 	   if err != nil {

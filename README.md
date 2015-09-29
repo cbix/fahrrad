@@ -15,6 +15,7 @@ The database has to provide the following keys:
 
 ## Build and run
 You need redis installed and running on tcp port 6379.
+
     $ go get github.com/CBiX/fahrrad
     $ su -c "$GOPATH/bin/fahrrad"
 
