@@ -14,8 +14,9 @@ The database has to provide the following keys:
   `2001:db8::/64` → `\x20\x01\x0d\xb8\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00`)
 
 ## Build and run
+You need redis installed and running on tcp port 6379.
     $ go get github.com/CBiX/fahrrad
-    # $GOPATH/bin/fahrrad
+    $ su -c "$GOPATH/bin/fahrrad"
 
 ## ref
 * RFC 4862
