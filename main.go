@@ -1,3 +1,5 @@
+// Copyright 2015 Florian Hülsmann <fh@cbix.de>
+
 package main
 
 import (
@@ -14,7 +16,7 @@ const (
 )
 
 var (
-	pc *net.PacketConn
+	pc *net.IPConn
 	db *redis.Client
 )
 
@@ -28,12 +30,12 @@ func main() {
 	defer db.Close()
 
 	// open listening connection
-	conn, err := net.ListenPacket("ip6:ipv6-icmp", "::")
+    conn, err := net.ListenIP("ip6:ipv6-icmp", &net.IPAddr{net.IPv6unspecified, ""})
 	if err != nil {
 		panic(err)
 	}
 	defer conn.Close()
-	pc = &conn
+	pc = conn
 	ipconn := ipv6.NewPacketConn(conn)
 
 	filter := new(ipv6.ICMPFilter)
@@ -71,7 +73,7 @@ func handleND(src net.Addr, body []byte) {
 	case ipv6.ICMPTypeRouterSolicitation:
 		handleRS(src, body)
 		/*
-			case ipv6.ICMPTypeRouterAdvertisement:
+        			case ipv6.ICMPTypeRouterAdvertisement:
 				handleRA(src, body)
 			case ipv6.ICMPTypeNeighborSolicitation:
 				handleNS(src, body)
@@ -158,7 +160,12 @@ func handleRS(src net.Addr, body []byte) {
 		panic(err)
 	}
 	// workaround wtfwtfwtf
+    // RFC4861 requires the hop limit set to 255, but the default value in golang is 64
+    // FIXME type casting shit
 	n, err := (*pc).WriteTo(mb, src)
+    pc6 := ipv6.NewPacketConn(pc)
+    pc6.SetHopLimit(255)
+    n, err = pc6.WriteTo(mb, nil, src)
 	fmt.Printf("writeto: %v, %v\n\n", n, err)
 	// FIXME: clients don't seem to accept this :(
 	/*

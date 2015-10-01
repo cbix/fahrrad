@@ -1,3 +1,5 @@
+// Copyright 2015 Florian Hülsmann <fh@cbix.de>
+
 package main
 
 import (
