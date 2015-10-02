@@ -24,4 +24,4 @@ $PATH variable.
 ## ref
 * RFC 4861
 * RFC 4862
-
+* RFC 5942

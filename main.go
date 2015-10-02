@@ -12,11 +12,13 @@ import (
 )
 
 const (
+    AssignedPrefixLength = 64
+    OnLinkPrefixLength = 48
 	ProtocolIPv6ICMP = 58
 )
 
 var (
-	pc *net.IPConn
+	pc *ipv6.PacketConn
 	db *redis.Client
 )
 
@@ -35,8 +37,9 @@ func main() {
 		panic(err)
 	}
 	defer conn.Close()
-	pc = conn
-	ipconn := ipv6.NewPacketConn(conn)
+	pc = ipv6.NewPacketConn(conn)
+    // RFC4861 requires the hop limit set to 255, but the default value in golang is 64
+    pc.SetHopLimit(255)
 
 	filter := new(ipv6.ICMPFilter)
 	filter.SetAll(true)
@@ -45,7 +48,7 @@ func main() {
 	//filter.Accept(ipv6.ICMPTypeNeighborSolicitation)
 	//filter.Accept(ipv6.ICMPTypeNeighborAdvertisement)
 	//filter.Accept(ipv6.ICMPTypeRedirect)
-	if err := ipconn.SetICMPFilter(filter); err != nil {
+	if err := pc.SetICMPFilter(filter); err != nil {
 		panic(err)
 	}
 
@@ -56,7 +59,7 @@ func main() {
 	//var body []byte
 	var n int
 	for err == nil {
-		if n, _, srcAddr, err = ipconn.ReadFrom(buf); err != nil {
+		if n, _, srcAddr, err = pc.ReadFrom(buf); err != nil {
 			fmt.Println(err)
 			continue
 		}
@@ -124,14 +127,30 @@ func handleRS(src net.Addr, body []byte) {
 	fmt.Println("found prefix " + net.IP(prefix).String() + "/64")
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
-	// Prefix option:
+    /*
+    According to RFC 5942, the announced prefixes for on-link usage and autoconfiguration
+    can be separate from each other (there can be an arbitrary number of advertised on-link
+    and autoconf prefixes, respectively).
+    This allows us to use /48 for the link but tell the clients to use /64 for autoconf.
+
+    //TODO: get this configuration from redis
+    */
+	// Prefix options:
 	op := &NDOptionPrefix{
-		PrefixLength:      64,
-		OnLink:            true,
+		PrefixLength:      AssignedPrefixLength,
+		OnLink:            false,
 		AutoConf:          true,
 		ValidLifetime:     86400,
 		PreferredLifetime: 14400,
-		Prefix:            net.IP(prefix),
+		Prefix:            net.IP(prefix).Mask(net.CIDRMask(AssignedPrefixLength, 128)),
+	}
+	op2 := &NDOptionPrefix{
+		PrefixLength:      OnLinkPrefixLength,
+		OnLink:            true,
+		AutoConf:          false,
+		ValidLifetime:     86400,
+		PreferredLifetime: 14400,
+		Prefix:            net.IP(prefix).Mask(net.CIDRMask(OnLinkPrefixLength, 128)),
 	}
 	opbytes, err := op.Marshal()
 	if err != nil {
@@ -139,6 +158,12 @@ func handleRS(src net.Addr, body []byte) {
 		return
 	}
 	msgbody = append(msgbody, opbytes...)
+	opbytes2, err := op2.Marshal()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	msgbody = append(msgbody, opbytes2...)
 
 	// LLA option (FIXME: hardware address retrieval)
 	localif, err := net.InterfaceByName(src.(*net.IPAddr).Zone)
@@ -159,21 +184,9 @@ func handleRS(src net.Addr, body []byte) {
 	if err != nil {
 		panic(err)
 	}
-	// workaround wtfwtfwtf
-    // RFC4861 requires the hop limit set to 255, but the default value in golang is 64
-    // FIXME type casting shit
-	n, err := (*pc).WriteTo(mb, src)
-    pc6 := ipv6.NewPacketConn(pc)
-    pc6.SetHopLimit(255)
-    n, err = pc6.WriteTo(mb, nil, src)
+    // send package
+    n, err := pc.WriteTo(mb, nil, src)
 	fmt.Printf("writeto: %v, %v\n\n", n, err)
-	// FIXME: clients don't seem to accept this :(
-	/*
-	   _, err = pc.WriteTo(mb, src)
-	   if err != nil {
-	       fmt.Println(err)
-	   }
-	*/
 }
 
 /*
