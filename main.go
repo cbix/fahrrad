@@ -12,9 +12,9 @@ import (
 )
 
 const (
-    AssignedPrefixLength = 64
-    OnLinkPrefixLength = 48
-	ProtocolIPv6ICMP = 58
+	AssignedPrefixLength = 64
+	OnLinkPrefixLength   = 48
+	ProtocolIPv6ICMP     = 58
 )
 
 var (
@@ -32,14 +32,14 @@ func main() {
 	defer db.Close()
 
 	// open listening connection
-    conn, err := net.ListenIP("ip6:ipv6-icmp", &net.IPAddr{net.IPv6unspecified, ""})
+	conn, err := net.ListenIP("ip6:ipv6-icmp", &net.IPAddr{net.IPv6unspecified, ""})
 	if err != nil {
 		panic(err)
 	}
 	defer conn.Close()
 	pc = ipv6.NewPacketConn(conn)
-    // RFC4861 requires the hop limit set to 255, but the default value in golang is 64
-    pc.SetHopLimit(255)
+	// RFC4861 requires the hop limit set to 255, but the default value in golang is 64
+	pc.SetHopLimit(255)
 
 	filter := new(ipv6.ICMPFilter)
 	filter.SetAll(true)
@@ -76,14 +76,14 @@ func handleND(src net.Addr, body []byte) {
 	case ipv6.ICMPTypeRouterSolicitation:
 		handleRS(src, body)
 		/*
-        			case ipv6.ICMPTypeRouterAdvertisement:
-				handleRA(src, body)
-			case ipv6.ICMPTypeNeighborSolicitation:
-				handleNS(src, body)
-			case ipv6.ICMPTypeNeighborAdvertisement:
-				handleNA(src, body)
-			case ipv6.ICMPTypeRedirect:
-				handleRedirect(src, body)
+		        			case ipv6.ICMPTypeRouterAdvertisement:
+						handleRA(src, body)
+					case ipv6.ICMPTypeNeighborSolicitation:
+						handleNS(src, body)
+					case ipv6.ICMPTypeNeighborAdvertisement:
+						handleNA(src, body)
+					case ipv6.ICMPTypeRedirect:
+						handleRedirect(src, body)
 		*/
 	default:
 		return
@@ -127,14 +127,14 @@ func handleRS(src net.Addr, body []byte) {
 	fmt.Println("found prefix " + net.IP(prefix).String() + "/64")
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
-    /*
-    According to RFC 5942, the announced prefixes for on-link usage and autoconfiguration
-    can be separate from each other (there can be an arbitrary number of advertised on-link
-    and autoconf prefixes, respectively).
-    This allows us to use /48 for the link but tell the clients to use /64 for autoconf.
+	/*
+	   According to RFC 5942, the announced prefixes for on-link usage and autoconfiguration
+	   can be separate from each other (there can be an arbitrary number of advertised on-link
+	   and autoconf prefixes, respectively).
+	   This allows us to use /48 for the link but tell the clients to use /64 for autoconf.
 
-    //TODO: get this configuration from redis
-    */
+	   //TODO: get this configuration from redis
+	*/
 	// Prefix options:
 	op := &NDOptionPrefix{
 		PrefixLength:      AssignedPrefixLength,
@@ -184,8 +184,8 @@ func handleRS(src net.Addr, body []byte) {
 	if err != nil {
 		panic(err)
 	}
-    // send package
-    n, err := pc.WriteTo(mb, nil, src)
+	// send package
+	n, err := pc.WriteTo(mb, nil, src)
 	fmt.Printf("writeto: %v, %v\n\n", n, err)
 }
 
