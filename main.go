@@ -3,9 +3,8 @@
 package main
 
 import (
-	"github.com/mediocregopher/radix.v2/redis"
-	//"github.com/mediocregopher/radix.v2/pubsub"
 	"fmt"
+	"github.com/mediocregopher/radix.v2/redis"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv6"
 	"net"
@@ -44,10 +43,6 @@ func main() {
 	filter := new(ipv6.ICMPFilter)
 	filter.SetAll(true)
 	filter.Accept(ipv6.ICMPTypeRouterSolicitation)
-	//filter.Accept(ipv6.ICMPTypeRouterAdvertisement)
-	//filter.Accept(ipv6.ICMPTypeNeighborSolicitation)
-	//filter.Accept(ipv6.ICMPTypeNeighborAdvertisement)
-	//filter.Accept(ipv6.ICMPTypeRedirect)
 	if err := pc.SetICMPFilter(filter); err != nil {
 		panic(err)
 	}
@@ -75,16 +70,6 @@ func handleND(src net.Addr, body []byte) {
 	switch t {
 	case ipv6.ICMPTypeRouterSolicitation:
 		handleRS(src, body)
-		/*
-		        			case ipv6.ICMPTypeRouterAdvertisement:
-						handleRA(src, body)
-					case ipv6.ICMPTypeNeighborSolicitation:
-						handleNS(src, body)
-					case ipv6.ICMPTypeNeighborAdvertisement:
-						handleNA(src, body)
-					case ipv6.ICMPTypeRedirect:
-						handleRedirect(src, body)
-		*/
 	default:
 		return
 	}
@@ -188,33 +173,3 @@ func handleRS(src net.Addr, body []byte) {
 	n, err := pc.WriteTo(mb, nil, src)
 	fmt.Printf("writeto: %v, %v\n\n", n, err)
 }
-
-/*
-func handleRA(src net.IP, body []byte) {
-	_, err := parseOptions(body[16:])
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func handleNS(src net.IP, body []byte) {
-	_, err := parseOptions(body[24:])
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func handleNA(src net.IP, body []byte) {
-	_, err := parseOptions(body[24:])
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-
-func handleRedirect(src net.IP, body []byte) {
-	_, err := parseOptions(body[40:])
-	if err != nil {
-		fmt.Println(err)
-	}
-}
-*/
