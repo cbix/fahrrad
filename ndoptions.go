@@ -10,21 +10,25 @@ import (
 	"net"
 )
 
+// Interface NDOption is an abstraction for ICMPv6 options in Neighbor Discovery (RFC 4861, 4.6)
 type NDOption interface {
-	Type() byte
-	Marshal() ([]byte, error)
+	Type() byte               // returns the type field of the option
+	Marshal() ([]byte, error) // returns the complete binary representation of the option
 	fmt.Stringer
 }
 
+// NDOptionLLA is either a source or target link-layer address option (RFC 4861, 4.6.1)
 type NDOptionLLA struct {
 	OptionType byte
 	Addr       net.HardwareAddr
 }
 
+// Method Type implements the Type() method of the NDOption interface and returns 1 (source LLA) or 2 (target LLA)
 func (o *NDOptionLLA) Type() byte {
 	return o.OptionType
 }
 
+// Method Marshal implements the Marshal() method of the NDOption interface
 func (o *NDOptionLLA) Marshal() ([]byte, error) {
 	l := len(o.Addr) + 2
 	if l%8 != 0 {
@@ -35,15 +39,17 @@ func (o *NDOptionLLA) Marshal() ([]byte, error) {
 
 // String() implements the String method of the fmt.Stringer interface
 func (o *NDOptionLLA) String() string {
+	s := "("
 	if o.OptionType == 1 {
-		return "(src-lla " + o.Addr.String() + ")"
+		s += "trg-lla "
 	}
 	if o.OptionType == 2 {
-		return "(trg-lla " + o.Addr.String() + ")"
+		s += "src-lla "
 	}
-	return "(" + string(o.OptionType) + ")"
+	return s + o.Addr.String() + ")"
 }
 
+// NDOptionPrefix is the prefix information option (RFC 4861, 4.6.2)
 type NDOptionPrefix struct {
 	PrefixLength      uint8
 	OnLink            bool
@@ -53,46 +59,64 @@ type NDOptionPrefix struct {
 	Prefix            net.IP
 }
 
+// Method Type implements the Type() method of the NDOption interface and always returns 3
 func (o *NDOptionPrefix) Type() byte {
 	return 3
 }
 
+// Method Marshal implements the Marshal() method of the NDOption interface
 func (o *NDOptionPrefix) Marshal() ([]byte, error) {
-	msg := []byte{3, 4}
 	if o.PrefixLength > 128 {
 		return nil, errors.New("invalid prefix length")
 	}
+
+	// type and length
+	msg := []byte{3, 4}
+
+	// L/A flags and Reserved1
 	var flags byte
 	if o.OnLink {
+		// set on-link bit
 		flags |= 0x80
 	}
 	if o.AutoConf {
+		// set autoconf bit
 		flags |= 0x40
 	}
 	msg = append(msg, byte(o.PrefixLength), flags)
-	// marshal lifetime values
+
+	// Valid Lifetime
 	vltbuf := new(bytes.Buffer)
 	if err := binary.Write(vltbuf, binary.BigEndian, o.ValidLifetime); err != nil {
 		return nil, err
 	}
 	msg = append(msg, vltbuf.Bytes()...)
+
+	// Preferred Lifetime
 	pltbuf := new(bytes.Buffer)
 	if err := binary.Write(pltbuf, binary.BigEndian, o.PreferredLifetime); err != nil {
 		return nil, err
 	}
 	msg = append(msg, pltbuf.Bytes()...)
+
 	prefix := o.Prefix.To16()
 	if prefix == nil {
 		return nil, errors.New("wrong prefix size")
 	}
+
+	// Reserved2
 	msg = append(msg, 0, 0, 0, 0)
+
+	// Prefix
 	return append(msg, prefix...), nil
 }
 
+// String() implements the String method of the fmt.Stringer interface
 func (o *NDOptionPrefix) String() string {
 	return "(prefix " + o.Prefix.String() + "/" + string(o.PrefixLength) + ")"
 }
 
+// Method parseOptions parses received ND options (only LLA so far)
 func parseOptions(bytes []byte) ([]*NDOption, error) {
 	options := make([]*NDOption, 1)
 	for len(bytes) > 7 {
@@ -101,12 +125,14 @@ func parseOptions(bytes []byte) ([]*NDOption, error) {
 			return options, errors.New("Invalid option length")
 
 		}
-		if bytes[0] == 1 || bytes[0] == 2 {
-			var option NDOption = &NDOptionLLA{bytes[0], net.HardwareAddr(bytes[2:l])}
-			options = append(options, &option)
-		} else {
-			options = append(options, nil)
+		var option NDOption
+		switch bytes[0] {
+		case 1, 2:
+			option = &NDOptionLLA{bytes[0], net.HardwareAddr(bytes[2:l])}
+		default:
+			option = nil
 		}
+		options = append(options, &option)
 		bytes = bytes[l:]
 	}
 	return options, nil
