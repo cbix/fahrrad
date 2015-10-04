@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	AssignedPrefixLength = 64
-	OnLinkPrefixLength   = 48
-	ProtocolIPv6ICMP     = 58
+	AssignedPrefixLength     = 64
+	OnLinkPrefixLength       = 48
+	DefaultValidLifetime     = 86400
+	DefaultPreferredLifetime = 14400
 )
 
 var (
@@ -22,12 +23,11 @@ var (
 )
 
 func main() {
+	var err error
 	// open redis connection
-	redisdb, err := redis.Dial("tcp", "localhost:6379")
-	if err != nil {
+	if db, err = redis.Dial("tcp", "localhost:6379"); err != nil {
 		panic(err)
 	}
-	db = redisdb
 	defer db.Close()
 
 	// open listening connection
@@ -40,33 +40,32 @@ func main() {
 	// RFC4861 requires the hop limit set to 255, but the default value in golang is 64
 	pc.SetHopLimit(255)
 
+	// only accept router solicitations
 	filter := new(ipv6.ICMPFilter)
 	filter.SetAll(true)
 	filter.Accept(ipv6.ICMPTypeRouterSolicitation)
-	if err := pc.SetICMPFilter(filter); err != nil {
+	filter.Accept(ipv6.ICMPTypeRouterAdvertisement)
+	filter.Accept(ipv6.ICMPTypeNeighborSolicitation)
+	filter.Accept(ipv6.ICMPTypeNeighborAdvertisement)
+	if err = pc.SetICMPFilter(filter); err != nil {
 		panic(err)
 	}
 
 	// read from socket
-	err = nil
 	buf := make([]byte, 512)
-	var srcAddr net.Addr
-	//var body []byte
-	var n int
-	for err == nil {
-		if n, _, srcAddr, err = pc.ReadFrom(buf); err != nil {
-			fmt.Println(err)
-			continue
+	for {
+		n, _, srcAddr, err := pc.ReadFrom(buf)
+		if err != nil {
+			panic(err)
 		}
-
 		go handleND(srcAddr, buf[:n])
 	}
-	fmt.Printf("error: %v\n", err)
 }
 
+// method handleND parses arbitrary ICMPv6 messages, currently only router solicitations
 func handleND(src net.Addr, body []byte) {
 	t := ipv6.ICMPType(body[0])
-	fmt.Printf("message from %v type: %v\n", src, t)
+	fmt.Printf("%v from %v\n", t, src)
 	switch t {
 	case ipv6.ICMPTypeRouterSolicitation:
 		handleRS(src, body)
@@ -75,12 +74,15 @@ func handleND(src net.Addr, body []byte) {
 	}
 }
 
+// method handleRS parses a router solicitation and eventually replies with a unicasted router advertisement
 func handleRS(src net.Addr, body []byte) {
+	// parse ND options
 	options, err := parseOptions(body[8:])
 	if err != nil {
 		fmt.Println(err)
 	}
-	// look up lla
+
+	// check if any of the options is a source LLA
 	var lla *NDOptionLLA = nil
 	for _, o := range options {
 		if o == nil {
@@ -96,20 +98,25 @@ func handleRS(src net.Addr, body []byte) {
 		}
 	}
 	if lla == nil {
+		fmt.Println("no source LLA option given")
 		return
 	}
-	fmt.Println("looking up prefix for " + net.HardwareAddr(lla.Addr).String() + " ...")
+	// lookup prefix from redis
+	fmt.Printf("looking up prefix for %v ... ", net.HardwareAddr(lla.Addr))
 	mackey := append([]byte("fahrrad/mac/"), lla.Addr...)
 	prefix, err := db.Cmd("GET", mackey).Bytes()
 	if err != nil {
-		fmt.Println(err)
+		//fmt.Println(err)
+		// i.e. key doesn't exist
+		fmt.Printf("not found: %v\n", err)
 		return
 	}
 	if len(prefix) != 16 {
-		fmt.Printf("invalid length of prefix %x\n", prefix)
+		fmt.Printf("invalid length: %x\n", prefix)
 		return
 	}
-	fmt.Println("found prefix " + net.IP(prefix).String() + "/64")
+	fmt.Printf("found %v/64\n", net.IP(prefix))
+	// ICMPv6 RA header:
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 	/*
@@ -117,59 +124,54 @@ func handleRS(src net.Addr, body []byte) {
 	   can be separate from each other (there can be an arbitrary number of advertised on-link
 	   and autoconf prefixes, respectively).
 	   This allows us to use /48 for the link but tell the clients to use /64 for autoconf.
-
-	   //TODO: get this configuration from redis
 	*/
 	// Prefix options:
-	op := &NDOptionPrefix{
+	// autoconf (assigned prefix) option
+	apopt := &NDOptionPrefix{
 		PrefixLength:      AssignedPrefixLength,
 		OnLink:            false,
 		AutoConf:          true,
-		ValidLifetime:     86400,
-		PreferredLifetime: 14400,
+		ValidLifetime:     DefaultValidLifetime,
+		PreferredLifetime: DefaultPreferredLifetime,
 		Prefix:            net.IP(prefix).Mask(net.CIDRMask(AssignedPrefixLength, 128)),
 	}
-	op2 := &NDOptionPrefix{
+	// onlink prefix option
+	olopt := &NDOptionPrefix{
 		PrefixLength:      OnLinkPrefixLength,
 		OnLink:            true,
 		AutoConf:          false,
-		ValidLifetime:     86400,
-		PreferredLifetime: 14400,
+		ValidLifetime:     DefaultValidLifetime,
+		PreferredLifetime: DefaultPreferredLifetime,
 		Prefix:            net.IP(prefix).Mask(net.CIDRMask(OnLinkPrefixLength, 128)),
 	}
-	opbytes, err := op.Marshal()
+	apoptbytes, err := apopt.Marshal()
 	if err != nil {
+		// this should never happen
 		fmt.Println(err)
 		return
 	}
-	msgbody = append(msgbody, opbytes...)
-	opbytes2, err := op2.Marshal()
+	msgbody = append(msgbody, apoptbytes...)
+	oloptbytes, err := olopt.Marshal()
 	if err != nil {
+		// this should never happen
 		fmt.Println(err)
 		return
 	}
-	msgbody = append(msgbody, opbytes2...)
+	msgbody = append(msgbody, oloptbytes...)
 
-	// LLA option (FIXME: hardware address retrieval)
-	localif, err := net.InterfaceByName(src.(*net.IPAddr).Zone)
-	if err == nil {
-		llaop := &NDOptionLLA{1, localif.HardwareAddr}
-		llaopbytes, err := llaop.Marshal()
-		if err == nil {
-			msgbody = append(msgbody, llaopbytes...)
-		} else {
-			fmt.Println(err)
-		}
-	} else {
-		fmt.Println(err)
-	}
+	// at this point we could include a source LLA option, but RFC 4861 doesn't require that
+	// this would work by taking net.InterfaceByName(src.(*net.IPAddr).Zone) and its HardwareAddr
 
+	// code and checksum are 0, the latter is calculated by the kernel
+	// TODO: data structure for RA/ND message body
 	msg := &icmp.Message{ipv6.ICMPTypeRouterAdvertisement, 0, 0, &icmp.DefaultMessageBody{msgbody}}
 	mb, err := msg.Marshal(nil)
 	if err != nil {
 		panic(err)
 	}
 	// send package
-	n, err := pc.WriteTo(mb, nil, src)
-	fmt.Printf("writeto: %v, %v\n\n", n, err)
+	_, err = pc.WriteTo(mb, nil, src)
+	if err != nil {
+		panic(err)
+	}
 }
