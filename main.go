@@ -40,7 +40,7 @@ func main() {
 	// RFC4861 requires the hop limit set to 255, but the default value in golang is 64
 	pc.SetHopLimit(255)
 
-	// only accept router solicitations
+	// only accept neighbor discovery messages
 	filter := new(ipv6.ICMPFilter)
 	filter.SetAll(true)
 	filter.Accept(ipv6.ICMPTypeRouterSolicitation)
