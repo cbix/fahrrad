@@ -10,6 +10,8 @@ import (
 	"net"
 )
 
+// TODO: implement RFC 6106
+
 // Interface NDOption is an abstraction for ICMPv6 options in Neighbor Discovery (RFC 4861, 4.6)
 type NDOption interface {
 	Type() byte               // returns the type field of the option

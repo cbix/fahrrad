@@ -4,7 +4,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/mediocregopher/radix.v2/redis"
+	"github.com/mediocregopher/radix.v2/pool"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv6"
 	"net"
@@ -19,16 +19,16 @@ const (
 
 var (
 	pc *ipv6.PacketConn
-	db *redis.Client
+	db *pool.Pool
 )
 
 func main() {
 	var err error
-	// open redis connection
-	if db, err = redis.Dial("tcp", "localhost:6379"); err != nil {
+	// create redis connection pool
+	if db, err = pool.New("tcp", "localhost:6379", 10); err != nil {
 		panic(err)
 	}
-	defer db.Close()
+	defer db.Empty()
 
 	// open listening connection
 	conn, err := net.ListenIP("ip6:ipv6-icmp", &net.IPAddr{net.IPv6unspecified, ""})
@@ -102,9 +102,14 @@ func handleRS(src net.Addr, body []byte) {
 		return
 	}
 	// lookup prefix from redis
+	dbc, err := db.Get()
+	if err != nil {
+		fmt.Println(err)
+	}
+	defer db.Put(dbc)
 	fmt.Printf("looking up prefix for %v ... ", net.HardwareAddr(lla.Addr))
 	mackey := append([]byte("fahrrad/mac/"), lla.Addr...)
-	prefix, err := db.Cmd("GET", mackey).Bytes()
+	prefix, err := dbc.Cmd("GET", mackey).Bytes()
 	if err != nil {
 		//fmt.Println(err)
 		// i.e. key doesn't exist
