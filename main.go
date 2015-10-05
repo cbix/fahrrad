@@ -8,6 +8,7 @@ import (
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv6"
 	"net"
+	"time"
 )
 
 const (
@@ -15,11 +16,18 @@ const (
 	OnLinkPrefixLength       = 48
 	DefaultValidLifetime     = 86400
 	DefaultPreferredLifetime = 14400
+	TickerDelay              = 5 * time.Minute
 )
 
+type routerSolicitation struct {
+	ip  net.Addr
+	mac net.HardwareAddr
+}
+
 var (
-	pc *ipv6.PacketConn
-	db *pool.Pool
+	pc     *ipv6.PacketConn
+	db     *pool.Pool
+	rschan chan routerSolicitation
 )
 
 func main() {
@@ -51,6 +59,9 @@ func main() {
 		panic(err)
 	}
 
+	rschan = make(chan routerSolicitation)
+	go hostManager()
+
 	// read from socket
 	buf := make([]byte, 512)
 	for {
@@ -62,63 +73,86 @@ func main() {
 	}
 }
 
+// method hostManager holds a list of hosts that get RAs periodically
+func hostManager() {
+	var activeRAs map[string]routerSolicitation = make(map[string]routerSolicitation)
+	var tick *time.Ticker = time.NewTicker(TickerDelay)
+	for {
+		select {
+		case rs := <-rschan:
+			k := string(rs.ip.(*net.IPAddr).IP)
+			activeRAs[k] = rs
+			success := handleRS(rs)
+			if !success {
+				delete(activeRAs, k)
+			}
+		case <-tick.C:
+			for _, rs := range activeRAs {
+				handleRS(rs)
+			}
+		}
+	}
+}
+
 // method handleND parses arbitrary ICMPv6 messages, currently only router solicitations
 func handleND(src net.Addr, body []byte) {
 	t := ipv6.ICMPType(body[0])
 	fmt.Printf("%v from %v\n", t, src)
 	switch t {
 	case ipv6.ICMPTypeRouterSolicitation:
-		handleRS(src, body)
+		// parse ND options
+		options, err := parseOptions(body[8:])
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		// check if any of the options is a source LLA
+		var lla *NDOptionLLA = nil
+		for _, o := range options {
+			if o == nil {
+				continue
+			}
+			llaopt, ok := (*o).(*NDOptionLLA)
+			if !ok {
+				continue
+			}
+			lla = llaopt
+			if int(lla.OptionType) != 1 {
+				continue
+			}
+		}
+		if lla == nil {
+			fmt.Println("no source LLA option given")
+			return
+		}
+		lladdr := make(net.HardwareAddr, len(lla.Addr))
+		copy(lladdr, lla.Addr)
+		rschan <- routerSolicitation{src, lladdr}
 	default:
 		return
 	}
 }
 
-// method handleRS parses a router solicitation and eventually replies with a unicasted router advertisement
-func handleRS(src net.Addr, body []byte) {
-	// parse ND options
-	options, err := parseOptions(body[8:])
-	if err != nil {
-		fmt.Println(err)
-	}
-
-	// check if any of the options is a source LLA
-	var lla *NDOptionLLA = nil
-	for _, o := range options {
-		if o == nil {
-			continue
-		}
-		llaopt, ok := (*o).(*NDOptionLLA)
-		if !ok {
-			continue
-		}
-		lla = llaopt
-		if int(lla.OptionType) != 1 {
-			continue
-		}
-	}
-	if lla == nil {
-		fmt.Println("no source LLA option given")
-		return
-	}
+// method handleRS takes a router solicitation and eventually replies with a unicasted router advertisement
+func handleRS(rs routerSolicitation) bool {
 	// lookup prefix from redis
 	dbc, err := db.Get()
 	if err != nil {
 		fmt.Println(err)
 	}
 	defer db.Put(dbc)
-	fmt.Printf("looking up prefix for %v ... ", net.HardwareAddr(lla.Addr))
-	mackey := append([]byte("fahrrad/mac/"), lla.Addr...)
+	fmt.Printf("looking up prefix for %v ... ", net.HardwareAddr(rs.mac))
+	mackey := append([]byte("fahrrad/mac/"), rs.mac...)
 	prefix, err := dbc.Cmd("GET", mackey).Bytes()
 	if err != nil {
 		//fmt.Println(err)
 		// i.e. key doesn't exist
 		fmt.Printf("not found: %v\n", err)
-		return
+		return false
 	}
 	if len(prefix) != 16 {
 		fmt.Printf("invalid length: %x\n", prefix)
-		return
+		return false
 	}
 	fmt.Printf("found %v/64\n", net.IP(prefix))
 	// ICMPv6 RA header:
@@ -153,14 +187,14 @@ func handleRS(src net.Addr, body []byte) {
 	if err != nil {
 		// this should never happen
 		fmt.Println(err)
-		return
+		return false
 	}
 	msgbody = append(msgbody, apoptbytes...)
 	oloptbytes, err := olopt.Marshal()
 	if err != nil {
 		// this should never happen
 		fmt.Println(err)
-		return
+		return false
 	}
 	msgbody = append(msgbody, oloptbytes...)
 
@@ -175,8 +209,9 @@ func handleRS(src net.Addr, body []byte) {
 		panic(err)
 	}
 	// send package
-	_, err = pc.WriteTo(mb, nil, src)
+	_, err = pc.WriteTo(mb, nil, rs.ip)
 	if err != nil {
 		panic(err)
 	}
+	return true
 }
