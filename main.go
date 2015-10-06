@@ -11,14 +11,6 @@ import (
 	"time"
 )
 
-const (
-	AssignedPrefixLength     = 64
-	OnLinkPrefixLength       = 48
-	DefaultValidLifetime     = 86400
-	DefaultPreferredLifetime = 14400
-	TickerDelay              = 5 * time.Minute
-)
-
 type routerSolicitation struct {
 	ip  net.Addr
 	mac net.HardwareAddr
@@ -28,6 +20,19 @@ var (
 	pc     *ipv6.PacketConn
 	db     *pool.Pool
 	rschan chan routerSolicitation
+	// default config, might be overwritten by redis hash key fahrrad/config
+	AssignedPrefixLength     uint8          = 64
+	OnLinkPrefixLength       uint8          = 48
+	DefaultValidLifetime     uint32         = 86400
+	DefaultPreferredLifetime uint32         = 14400
+	TickerDelay              time.Duration  = 5 * time.Minute
+	defaultConfig            map[string]int = map[string]int{
+		"AssignedPrefixLength":     int(AssignedPrefixLength),
+		"OnLinkPrefixLength":       int(OnLinkPrefixLength),
+		"DefaultValidLifetime":     int(DefaultValidLifetime),
+		"DefaultPreferredLifetime": int(DefaultPreferredLifetime),
+		"TickerDelay":              int(TickerDelay / time.Second),
+	}
 )
 
 func main() {
@@ -37,6 +42,41 @@ func main() {
 		panic(err)
 	}
 	defer db.Empty()
+	dbc, err := db.Get()
+	if err != nil {
+		fmt.Println(err)
+	}
+	for k, v := range defaultConfig {
+		dbc.PipeAppend("HSETNX", "fahrrad/config", k, v)
+	}
+	for k, _ := range defaultConfig {
+		dbc.PipeAppend("HGET", "fahrrad/config", k)
+	}
+	for _, _ = range defaultConfig {
+		dbc.PipeResp()
+	}
+	var v int
+	v, err = dbc.PipeResp().Int()
+	if err == nil {
+		AssignedPrefixLength = uint8(v)
+	}
+	v, err = dbc.PipeResp().Int()
+	if err == nil {
+		OnLinkPrefixLength = uint8(v)
+	}
+	v, err = dbc.PipeResp().Int()
+	if err == nil {
+		DefaultValidLifetime = uint32(v)
+	}
+	v, err = dbc.PipeResp().Int()
+	if err == nil {
+		DefaultPreferredLifetime = uint32(v)
+	}
+	v, err = dbc.PipeResp().Int()
+	if err == nil {
+		TickerDelay = time.Duration(v) * time.Second
+	}
+	defer db.Put(dbc)
 
 	// open listening connection
 	conn, err := net.ListenIP("ip6:ipv6-icmp", &net.IPAddr{net.IPv6unspecified, ""})
@@ -154,7 +194,7 @@ func handleRS(rs routerSolicitation) bool {
 		fmt.Printf("invalid length: %x\n", prefix)
 		return false
 	}
-	fmt.Printf("found %v/64\n", net.IP(prefix))
+	fmt.Printf("found %v/%d\n", net.IP(prefix), AssignedPrefixLength)
 	// ICMPv6 RA header:
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
@@ -172,7 +212,7 @@ func handleRS(rs routerSolicitation) bool {
 		AutoConf:          true,
 		ValidLifetime:     DefaultValidLifetime,
 		PreferredLifetime: DefaultPreferredLifetime,
-		Prefix:            net.IP(prefix).Mask(net.CIDRMask(AssignedPrefixLength, 128)),
+		Prefix:            net.IP(prefix).Mask(net.CIDRMask(int(AssignedPrefixLength), 128)),
 	}
 	// onlink prefix option
 	olopt := &NDOptionPrefix{
@@ -181,7 +221,7 @@ func handleRS(rs routerSolicitation) bool {
 		AutoConf:          false,
 		ValidLifetime:     DefaultValidLifetime,
 		PreferredLifetime: DefaultPreferredLifetime,
-		Prefix:            net.IP(prefix).Mask(net.CIDRMask(OnLinkPrefixLength, 128)),
+		Prefix:            net.IP(prefix).Mask(net.CIDRMask(int(OnLinkPrefixLength), 128)),
 	}
 	apoptbytes, err := apopt.Marshal()
 	if err != nil {
