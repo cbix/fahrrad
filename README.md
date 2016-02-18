@@ -25,3 +25,6 @@ $PATH variable.
 * RFC 4861
 * RFC 4862
 * RFC 5942
+
+## keywords
+mac-based real-time dynamic router advertisement daemon static prefix
