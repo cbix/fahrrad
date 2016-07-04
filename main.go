@@ -194,7 +194,18 @@ func handleRS(rs routerSolicitation) bool {
 		fmt.Printf("invalid length: %x\n", prefix)
 		return false
 	}
-	fmt.Printf("found %v/%d\n", net.IP(prefix), AssignedPrefixLength)
+    // read config from db
+    var v int
+    var config map[string]int
+	for k, dv := range defaultConfig {
+        v, err = dbc.Cmd("HGET", "fahrrad/config", k).Int()
+        if err != nil {
+            v = dv
+        }
+        config[k] = v
+	}
+
+	fmt.Printf("found %v/%d\n", net.IP(prefix), config["AssignedPrefixLength"])
 	// ICMPv6 RA header:
 	msgbody := []byte{0x40, 0x00, 0x07, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
@@ -207,20 +218,20 @@ func handleRS(rs routerSolicitation) bool {
 	// Prefix options:
 	// autoconf (assigned prefix) option
 	apopt := &NDOptionPrefix{
-		PrefixLength:      AssignedPrefixLength,
+		PrefixLength:      uint8(config["AssignedPrefixLength"]),
 		OnLink:            false,
 		AutoConf:          true,
-		ValidLifetime:     DefaultValidLifetime,
-		PreferredLifetime: DefaultPreferredLifetime,
-		Prefix:            net.IP(prefix).Mask(net.CIDRMask(int(AssignedPrefixLength), 128)),
+		ValidLifetime:     uint32(config["DefaultValidLifetime"]),
+		PreferredLifetime: uint32(config["DefaultPreferredLifetime"]),
+		Prefix:            net.IP(prefix).Mask(net.CIDRMask(config["AssignedPrefixLength"], 128)),
 	}
 	// onlink prefix option
 	olopt := &NDOptionPrefix{
-		PrefixLength:      OnLinkPrefixLength,
+		PrefixLength:      uint8(config["OnLinkPrefixLength"]),
 		OnLink:            true,
 		AutoConf:          false,
-		ValidLifetime:     DefaultValidLifetime,
-		PreferredLifetime: DefaultPreferredLifetime,
+		ValidLifetime:     uint32(config["DefaultValidLifetime"]),
+		PreferredLifetime: uint32(config["DefaultPreferredLifetime"]),
 		Prefix:            net.IP(prefix).Mask(net.CIDRMask(int(OnLinkPrefixLength), 128)),
 	}
 	apoptbytes, err := apopt.Marshal()
