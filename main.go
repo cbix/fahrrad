@@ -194,9 +194,10 @@ func handleRS(rs routerSolicitation) bool {
 		fmt.Printf("invalid length: %x\n", prefix)
 		return false
 	}
-    // read config from db
-    var v int
-    var config map[string]int
+	// read config from db
+	var v int
+	config := make(map[string]int)
+
 	for k, dv := range defaultConfig {
         v, err = dbc.Cmd("HGET", "fahrrad/config", k).Int()
         if err != nil {
